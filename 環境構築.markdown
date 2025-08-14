@@ -1,0 +1,43 @@
+# 環境構築手順
+
+## angularプロジェクトの作成
+1. node.jsのインストール(node.jsを使うつもりがなくても、npmコマンドを使うために必要)
+```
+winget install OpenJS.NodeJS
+```
+2. vscodeを再起動する
+3. angulaCLIのインストール
+```
+npm install -g @angular/cli
+```
+
+
+## github pagesにデプロイ
+```
+注意事項
+リポジトリが非公開だと、課金が必要。
+```
+
+1. angularをビルドする(--probをつけると本番環境用になり、デバック用の処理を省くことで実行速度が上がるらしいがエラーが出たのでやめた)
+```
+ng build --base-href "https://<ユーザー名>.github.io/<リポジトリ名>/"
+```
+2. angular-cli-ghpagesをインストール
+```
+npm install -g angular-cli-ghpages
+```
+3. distフォルダをpagesにアップロード
+```
+npx angular-cli-ghpages --dir=dist/<プロジェクト名>
+```
+4. github pagesの有効化
+    1. [Setting] → [Pages]
+    1. [Branch]をgh-pagesに変更
+    1. [Save]を押下
+
+## コードの更新があったら
+以下のコマンドを実行
+```
+ng build --prod --base-href "https://<ユーザー名>.github.io/<リポジトリ名>/"
+npx angular-cli-ghpages --dir=dist/<プロジェクト名>
+```
