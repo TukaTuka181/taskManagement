@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@event-calendar/core": "^4.5.1"
+  }
+}
