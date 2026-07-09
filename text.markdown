@@ -1,59 +1,82 @@
-# オンプレ/クラウド配置条件
+- 30m:コンテナレジストリの監視(不審なPush/Pull)
+    コンテナレジストリへの不審なPushやPullを検知したい。
+    目的は、サプライチェーンに脆弱性がないようにするため。
+    Defenderからどのようなログが送られてくるか？
+    ＝＞不審なPushやPullは検知不可
+        デプロイされたイメージに脆弱性があれば、推奨事項としてログに格納される。
+        コンテナに関する推奨事項事項は下記のリンクから確認。
+        種類：脆弱性評価を条件に検出すればよさげ。
+
+        https://learn.microsoft.com/en-us/azure/defender-for-cloud/recommendations-reference-container
+
+    推奨事項はどのようにLog Analyticsのテーブルに格納される？
+    ＝＞下記のサイトから確認。
+        https://github.com/Azure/Microsoft-Defender-for-Cloud/blob/main/Powershell%20scripts/Workflow%20automation%20and%20export%20data%20types%20schemas/Recommendation.schema.json
 
 
-# 機能調査
-- ダッシュボード作成機能調査
-データソースから取得した情報をクエリで加工し、可視化する。
+    **コンテナの脆弱性診断管理にはMDMVの有効化が必要。**
+    Registry accessをDefender for Containersプランで有効化する必要がある。
+    https://learn.microsoft.com/en-us/azure/defender-for-cloud/agentless-vulnerability-assessment-azure
 
+    **Image Vulnerability Detection**
+    LLM02
+    ```
+    SecurityRecommendation
+    | where RecommendationDisplayName has "vulnerability"
+        or RecommendationDisplayName has "vulnerabilities"
+        or Description has "vulnerability"
+        or Description has "vulnerabilities"
+    ```
 
-- 外部データ連携機能調査
-    - Monitor
-    - Log Analytics Workspace
-    - Sentinel
+- 1h:app serviceの検出ルール
+Defender for App ServiceまたはAPIMの診断設定から異常検知(サービスやAPIへの不審リクエストや、コマンドインジェクションなど)を行いたい。
+## Defender(APIs/App Service)のアラート
+(Web shell検出、コマンドインジェクション試行、異常なAPI呼び出しパターンなど)は、Defender for Cloudのセキュリティアラートとして生成されます。
 
-Monitorは使用できる
+## APIMの診断設定
+閉域アクセス以外からのリクエスト、特定URLへの集中アクセス等を補完する 。
 
-log analyticsはmonitor経由で監視できる
-https://learn.microsoft.com/ja-jp/azure/azure-monitor/logs/data-platform-logs?utm_source=chatgpt.com
+##　Defenderの推奨事項
 
-sentinelは検出結果をlog analyticsに保存
-https://docs.azure.cn/en-us/sentinel/security-alert-schema?utm_source=chatgpt.com
+【LLM02】API Attack Detection
+```
+SecurityAlert
+| where ProductName == "Microsoft Defender for Cloud"
+| where ResourceId has "Microsoft.ApiManagement"
+| where AlertSeverity in ("High", "Medium")
+```
 
+【LLM02】Traffic Anomaly Detection
+```
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(1d)
+| summarize RequestCount = count() by CallerIpAddress, bin(TimeGenerated, 15m)
+| make-series Trend = sum(RequestCount) on TimeGenerated from ago(1d) to now() step 15m by CallerIpAddress
+| extend (Anomalies, Score, Baseline) = series_decompose_anomalies(Trend)
+| mv-expand Anomalies, TimeGenerated, Trend
+| where Anomalies != 0
+```
+- 1h:APIM 診断設定ログ活用
 
-# 非機能調査
-- Grafanaの権限制御(ID,passはあったと思う)
-サーバー管理者
-組織ロール（Viewer / Editor / Admin）　基本ロール
-    Viewer → 見るだけ
-    Editor → 作る・編集する
-    Admin  → 何でもできる
-    基本ロール　権限がありません。必要に応じてRBACを使用して権限を追加してください。
-ダッシュボード・フォルダ権限
+下記のサイトにクエリ例が載っている
+https://learn.microsoft.com/en-us/azure/azure-monitor/reference/queries/apimanagementgatewaylogs
+- 30mトークン消費量
+```
+test_CL
+| where TimeGenerated > ago(1d)
+| summarize TokenSum = sum(toreal(Token_CL)) by bin(TimeGenerated, 15m)
+| make-series Trend = sum(TokenSum) on TimeGenerated from ago(1d) to now() step 15m
+| extend (Anomalies, Score, Baseline) = series_decompose_anomalies(Trend)
+| mv-expand Anomalies, TimeGenerated, Trend
+| where Anomalies == 1
+```
+web/APIへの攻撃(不審リクエストや、コマンドインジェクションなど)のリスクを検知する分析ルールのKQLを作成して。
+複数の分析ルールのKQLを作成して。
+Log AnalyticsにはDefenderのセキュリティアラートと推奨事項、APIMの診断設定のログを格納するようにしている。
 
-Grafana Enterprise
-    データソースの権限
-    役割ベースアクセス制御（RBAC）
-        基本ロールに加えカスタムロールを作成可能
-        だが基本ロールは含めなければいけない。
-        ユーザーB：
-        - 基本ロール：Viewer（基本は閲覧のみ）
-        - カスタムロール：
-            - dashboards:write（特定範囲だけ）
+目的：さまざまなAIリスク(プロンプトインジェクションや情報漏洩)の検出を行い、問題がないかを確認したい。
 
+どのサービス(APIM、Defender)のどこ(診断設定、セキュリティアラート、推奨事項)からどんな情報がLog Analytics Workspaceのどのテーブルに入るかを調査。
 
-https://grafana.com/docs/grafana/latest/administration/roles-and-permissions/
-
-- 負荷テスト
-
-
-
-- AKSとGrafanaの両方の料金体系を調査
-AKS
-以下の三つの料金体系
-Free
-Standard SLA
-Premium SLA＋LTS
-
-https://azure.microsoft.com/ja-jp/pricing/calculator/?service=kubernetes-service
-
-Grafana
+1.攻撃を検知できるのはどのログかを挙げる。
+2.そのログからどのようなKQLで検知できるかを考える。
